@@ -9,6 +9,33 @@
         <link type="text/css" rel="stylesheet" href="{% static "pretixcontrol/scss/pdfeditor.css" %}">
     {% endcompress %}
     <link type="text/css" rel="stylesheet" href="{% url "control:pdf.css" %}">
+    <style>
+        #toolbox-pin {
+            display: none;
+        }
+
+        #toolbox[data-type=text] #toolbox-pin {
+            display: inline-block;
+        }
+
+        #toolbox[data-type=textarea] #toolbox-pin {
+            display: inline-block;
+        }
+
+        #toolbox[data-type=group-text] .text {
+            display: block;
+        }
+
+        #toolbox[data-type=group-text] .object-buttons {
+            display: block;
+        }
+
+        #toolbox-pin.is-pinned {
+            background-color: #337ab7;
+            border-color: #2e6da4;
+            color: #fff;
+        }
+    </style>
 {% endblock %}
 {% block content %}
     <h1>
@@ -134,6 +161,10 @@
                             <button type="button" class="btn btn-default btn-xs" id="toolbox-copy"
                                     title="{% trans "Copy" %}">
                                 <span class="fa fa-copy"></span>
+                            </button>
+                            <button type="button" class="btn btn-default btn-xs text-pin-button" id="toolbox-pin"
+                                title="{% trans " Pin/Unpin text object" %}">
+                                <span class="fa fa-thumb-tack"></span>
                             </button>
                             <button type="button" class="btn btn-delete btn-danger btn-xs" id="toolbox-delete"
                                     title="{% trans "Delete" %}">
@@ -356,6 +387,358 @@
     <script type="text/javascript" src="{% static "pdfjs/pdf.js" %}"></script>
     <script type="text/javascript" src="{% static "fabric/fabric.min.js" %}"></script>
     <script type="text/javascript" src="{% static "pretixcontrol/js/ui/editor.js" %}?v=autofit4"></script>
+    <script type="text/javascript">
+        if (typeof editor !== "undefined") {
+            editor._all_selected_are_text = function (objects) {
+                return !!objects &&
+                    objects.length > 1 &&
+                    objects.every(function (obj) {
+                        return (
+                            obj.type === "textarea" ||
+                            obj.type === "text" ||
+                            obj.type === "textbox" ||
+                            obj.type === "i-text" ||
+                            (typeof obj.type === "string" && obj.type.toLowerCase().indexOf("text") !== -1)
+                        );
+                    });
+            };
+
+            var tsApplyTextGroupToolbox = function () {
+                if (!editor.fabric) {
+                    return;
+                }
+
+                var objects = editor.fabric.getActiveObjects();
+
+                if (!editor._all_selected_are_text(objects)) {
+                    return;
+                }
+
+                $("#toolbox").attr("data-type", "group-text");
+                $("#toolbox-heading").text(
+                    typeof gettext !== "undefined"
+                        ? gettext("Group of text objects")
+                        : "Group of text objects"
+                );
+
+                var first = objects[0];
+
+                if (first.fill) {
+                    var color = new fabric.Color(first.fill)._source;
+                    var hex = "#" + ((1 << 24) +
+                        (color[0] << 16) +
+                        (color[1] << 8) +
+                        color[2]).toString(16).slice(1);
+
+                    $("#toolbox-col").val(hex);
+
+                    var $color = $("#toolbox-col");
+                    if ($color.data("colorpicker")) {
+                        $color.colorpicker("setValue", hex);
+                    }
+                }
+
+                $("#toolbox-fontsize").val(
+                    editor._px2pt(first.fontSize).toFixed(1)
+                );
+                $("#toolbox-fontfamily").val(first.fontFamily);
+                $("#toolbox").find("button[data-action=bold]")
+                    .toggleClass("active", first.fontWeight === "bold");
+                $("#toolbox").find("button[data-action=italic]")
+                    .toggleClass("active", first.fontStyle === "italic");
+                $("#toolbox").find("button[data-action=left]")
+                    .toggleClass("active", first.textAlign === "left");
+                $("#toolbox").find("button[data-action=center]")
+                    .toggleClass("active", first.textAlign === "center");
+                $("#toolbox").find("button[data-action=right]")
+                    .toggleClass("active", first.textAlign === "right");
+            };
+
+            var tsUpdatePinButton = function () {
+                var $pin = $("#toolbox-pin");
+
+                if (!editor.fabric) {
+                    $pin.hide();
+                    return;
+                }
+
+                var objects = editor.fabric.getActiveObjects();
+
+                if (
+                    objects.length !== 1 ||
+                    (
+                        objects[0].type !== "textarea" &&
+                        objects[0].type !== "text" &&
+                        objects[0].type !== "textbox" &&
+                        objects[0].type !== "i-text" &&
+                        !(typeof objects[0].type === "string" &&
+                            objects[0].type.toLowerCase().indexOf("text") !== -1)
+                    )
+                ) {
+                    $pin.hide().removeClass("is-pinned btn-info").addClass("btn-default");
+                    return;
+                }
+
+                var pinned = objects[0].pinned === true;
+
+                $pin.show()
+                    .toggleClass("is-pinned", pinned)
+                    .toggleClass("btn-info", pinned)
+                    .toggleClass("btn-default", !pinned);
+            };
+
+            var tsBindFabricHandlers = function () {
+                if (!editor.fabric || editor._ts_handlers_bound) {
+                    return;
+                }
+
+                editor._ts_handlers_bound = true;
+
+                editor.fabric.on("selection:created", function () {
+                    tsUpdatePinButton();
+                    tsApplyTextGroupToolbox();
+                });
+
+                editor.fabric.on("selection:updated", function () {
+                    tsUpdatePinButton();
+                    tsApplyTextGroupToolbox();
+                });
+
+                editor.fabric.on("selection:cleared", function () {
+                    tsUpdatePinButton();
+                });
+
+                editor.fabric.on("mouse:up", function () {
+                    tsUpdatePinButton();
+
+                    if (editor._ts_group_ui_pending) {
+                        return;
+                    }
+
+                    editor._ts_group_ui_pending = true;
+
+                    window.requestAnimationFrame(function () {
+                        editor._ts_group_ui_pending = false;
+
+                        if (editor.fabric) {
+                            tsApplyTextGroupToolbox();
+                        }
+                    });
+                });
+
+                tsUpdatePinButton();
+            };
+
+            var tsOriginalInitFabric = editor._init_fabric;
+            editor._init_fabric = function () {
+                tsOriginalInitFabric.apply(this, arguments);
+                tsBindFabricHandlers();
+            };
+
+            if (editor.fabric) {
+                tsBindFabricHandlers();
+            }
+
+            $("#toolbox-pin").on("click.ts_pin", function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                var objects = editor.fabric
+                    ? editor.fabric.getActiveObjects()
+                    : [];
+
+                if (
+                    objects.length !== 1 ||
+                    (
+                        objects[0].type !== "textarea" &&
+                        objects[0].type !== "text" &&
+                        objects[0].type !== "textbox" &&
+                        objects[0].type !== "i-text" &&
+                        !(typeof objects[0].type === "string" &&
+                            objects[0].type.toLowerCase().indexOf("text") !== -1)
+                    )
+                ) {
+                    return;
+                }
+
+                var object = objects[0];
+                var pinned = object.pinned !== true;
+
+                object.set({
+                    pinned: pinned,
+                    editable: !pinned,
+                    lockMovementX: pinned,
+                    lockMovementY: pinned,
+                    lockRotation: pinned,
+                    lockScalingX: pinned,
+                    lockScalingY: pinned,
+                    hasControls: !pinned
+                });
+
+                object.dirty = true;
+
+                tsUpdatePinButton();
+                editor.fabric.renderAll();
+                editor._create_savepoint();
+            });
+
+            var tsBindPinnedSelection = function () {
+                if (!editor.fabric || editor._ts_pin_selection_bound) {
+                    return;
+                }
+
+                editor._ts_pin_selection_bound = true;
+
+                editor.fabric.on("mouse:down:before", function (opt) {
+                    if (opt.target) {
+                        editor._ts_pinned_objects = null;
+                        return;
+                    }
+
+                    editor._ts_pinned_objects = editor.fabric.getObjects().filter(function (obj) {
+                        return obj.pinned === true;
+                    });
+
+                    editor._ts_pinned_objects.forEach(function (obj) {
+                        obj.selectable = false;
+                    });
+                });
+
+                editor.fabric.on("mouse:up", function () {
+                    if (!editor._ts_pinned_objects) {
+                        return;
+                    }
+
+                    editor._ts_pinned_objects.forEach(function (obj) {
+                        obj.selectable = true;
+                    });
+
+                    editor._ts_pinned_objects = null;
+                });
+            };
+
+            var tsOriginalInitFabricForPin = editor._init_fabric;
+            editor._init_fabric = function () {
+                tsOriginalInitFabricForPin.apply(this, arguments);
+                tsBindPinnedSelection();
+            };
+
+            if (editor.fabric) {
+                tsBindPinnedSelection();
+            }
+
+            var tsApplyGroupFormatting = function () {
+                if (!editor.fabric) {
+                    return;
+                }
+
+                var objects = editor.fabric.getActiveObjects();
+
+                if (!editor._all_selected_are_text(objects)) {
+                    return;
+                }
+
+                var color = $("#toolbox-col").val();
+                var fontFamily = $("#toolbox-fontfamily").val();
+                var fontSize = parseFloat($("#toolbox-fontsize").val());
+                var bold = $("#toolbox").find("button[data-action=bold]").is(".active");
+                var italic = $("#toolbox").find("button[data-action=italic]").is(".active");
+                var align = $("#toolbox-align").find(".active").attr("data-action");
+
+                objects.forEach(function (object) {
+                    if (object.pinned) {
+                        return;
+                    }
+
+                    if (color) {
+                        object.set("fill", color);
+                    }
+
+                    if (fontFamily) {
+                        object.set("fontFamily", fontFamily);
+                    }
+
+                    if (!isNaN(fontSize)) {
+                        object.set("fontSize", editor._pt2px(fontSize));
+                    }
+
+                    object.set("fontWeight", bold ? "bold" : "normal");
+                    object.set("fontStyle", italic ? "italic" : "normal");
+
+                    if (align) {
+                        object.set("textAlign", align);
+                    }
+
+                    object.setCoords();
+                });
+
+                editor.fabric.renderAll();
+            };
+
+            $("#toolbox")
+                .on(
+                    "change.ts_group_format input.ts_group_format keyup.ts_group_format",
+                    "#toolbox-col, #toolbox-fontsize, #toolbox-fontfamily",
+                    tsApplyGroupFormatting
+                )
+                .on(
+                    "click.ts_group_format",
+                    "button.toggling",
+                    tsApplyGroupFormatting
+                )
+                .on(
+                    "changeColor.ts_group_format",
+                    "#toolbox-col",
+                    tsApplyGroupFormatting
+                );
+        }
+    </script>
+
+    <script type="text/javascript">
+        if (typeof editor !== "undefined") {
+            var tsOriginalDump = editor.dump;
+            editor.dump = function (objects) {
+                var result = tsOriginalDump.apply(this, arguments);
+                var source = objects || editor.fabric.getObjects();
+
+                source.forEach(function (object, index) {
+                    if (
+                        result[index] &&
+                        (object.type === "textarea" || object.type === "text")
+                    ) {
+                        result[index].pinned = object.pinned === true;
+                    }
+                });
+
+                return result;
+            };
+
+            var tsOriginalAddFromData = editor._add_from_data;
+            editor._add_from_data = function (data) {
+                var object = tsOriginalAddFromData.apply(this, arguments);
+
+                if (
+                    object &&
+                    (object.type === "textarea" || object.type === "text") &&
+                    data.pinned
+                ) {
+                    object.pinned = true;
+                    object.set({
+                        editable: false,
+                        lockMovementX: true,
+                        lockMovementY: true,
+                        lockRotation: true,
+                        lockScalingX: true,
+                        lockScalingY: true,
+                        hasControls: false
+                    });
+                }
+
+                return object;
+            };
+        }
+    </script>
+
     <img src="{% static 'pretixpresale/pdf/powered_by_eventyay_dark.png' %}" id="poweredby-dark" class="sr-only">
     <img src="{% static 'pretixpresale/pdf/powered_by_eventyay_white.png' %}" id="poweredby-white" class="sr-only">
     {% for family, styles in fonts.items %}

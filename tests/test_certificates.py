@@ -459,14 +459,15 @@ def test_group_text_formatting_preserves_layout_structure():
 
 
 @pytest.mark.django_db
-def test_certificate_renderer_get_ev_returns_event():
+def test_certificate_renderer_get_ev_returns_event(event):
     """Test that CertificateRenderer._get_ev returns the event directly"""
     from teamshifts.pdf import CertificateRenderer, default_layout
 
-    layout = default_layout()
-    ctx = {"_event_color": "#c0392b"}
-    renderer = CertificateRenderer(event, layout, None, ctx)
+    with scope(event=event, organizer=event.organizer):
+        layout = default_layout()
+        ctx = {"_event_color": "#c0392b"}
+        renderer = CertificateRenderer(event, layout, None, ctx)
 
-    # _get_ev should return self.event, not dereference order
-    result = renderer._get_ev(None, None)
-    assert result == event
+        # _get_ev should return self.event, not dereference order
+        result = renderer._get_ev(None, None)
+        assert result == event

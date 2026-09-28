@@ -302,6 +302,10 @@ label .optional {
   display: block;
 }
 
+#toolbox[data-type=group-text] .certificate-group-color {
+  display: block;
+}
+
 #toolbox[data-type=group-text] .object-buttons {
   display: block;
 }

@@ -27,6 +27,21 @@
                 });
         };
 
+        var tsOriginalUpdateValuesFromToolbox = editor._update_values_from_toolbox;
+        editor._update_values_from_toolbox = function (event) {
+            if (
+                event &&
+                event.target &&
+                event.target.id === "toolbox-col" &&
+                editor.fabric &&
+                editor._all_selected_are_text(editor.fabric.getActiveObjects())
+            ) {
+                return;
+            }
+
+            return tsOriginalUpdateValuesFromToolbox.apply(this, arguments);
+        };
+
         // Apply group text toolbox UI
         var tsApplyTextGroupToolbox = function () {
             if (!editor.fabric) {
@@ -307,21 +322,49 @@
             editor.fabric.renderAll();
         };
 
+        var tsApplyGroupColor = function () {
+            if (!editor.fabric) {
+                return;
+            }
+
+            var objects = editor.fabric.getActiveObjects();
+
+            if (!editor._all_selected_are_text(objects)) {
+                return;
+            }
+
+            var color = $("#toolbox-col").val();
+            if (!color) {
+                return;
+            }
+
+            objects.forEach(function (object) {
+                if (object.pinned) {
+                    return;
+                }
+
+                object.set("fill", color);
+                object.setCoords();
+            });
+
+            editor.fabric.renderAll();
+        };
+
         // Bind group formatting events
         $("#toolbox")
             .on(
                 "change.ts_group_format input.ts_group_format keyup.ts_group_format",
-                "#toolbox-col, #toolbox-fontsize, #toolbox-fontfamily",
+                "#toolbox-fontsize, #toolbox-fontfamily",
                 tsApplyGroupFormatting
+            )
+            .on(
+                "change.ts_group_format input.ts_group_format keyup.ts_group_format changeColor.ts_group_format",
+                "#toolbox-col",
+                tsApplyGroupColor
             )
             .on(
                 "click.ts_group_format",
                 "button.toggling",
-                tsApplyGroupFormatting
-            )
-            .on(
-                "changeColor.ts_group_format",
-                "#toolbox-col",
                 tsApplyGroupFormatting
             );
 

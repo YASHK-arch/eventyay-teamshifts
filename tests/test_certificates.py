@@ -372,3 +372,98 @@ def test_certificate_editor_view_get_current_layout(event, rf):
         custom_layout = view.get_current_layout()
         custom_title = next(o for o in custom_layout if o.get("content") == "certificate_title")
         assert custom_title["color"] == custom_color
+
+
+@pytest.mark.django_db
+def test_pinned_state_serialization_in_layout():
+    """Test that pinned state is properly serialized in layout JSON"""
+    import json
+    from teamshifts.pdf import default_layout
+
+    layout = default_layout()
+    # Add pinned state to a text object
+    for obj in layout:
+        if obj.get("content") == "certificate_title":
+            obj["pinned"] = True
+            break
+
+    layout_json = json.dumps(layout)
+    parsed_layout = json.loads(layout_json)
+
+    title_obj = next(o for o in parsed_layout if o.get("content") == "certificate_title")
+    assert title_obj.get("pinned") is True
+
+    # Other objects should not have pinned state
+    member_obj = next(o for o in parsed_layout if o.get("content") == "member_name")
+    assert member_obj.get("pinned") is None
+
+
+@pytest.mark.django_db
+def test_pinned_state_does_not_affect_pdf_rendering(event):
+    """Test that pinned state in layout does not affect PDF rendering"""
+    from unittest.mock import MagicMock
+    from teamshifts.pdf import CertificateRenderer, default_layout
+
+    with scope(event=event, organizer=event.organizer):
+        layout = default_layout()
+        # Add pinned state to objects
+        for obj in layout:
+            if obj.get("type") == "textarea":
+                obj["pinned"] = True
+
+        ctx = {"_event_color": "#c0392b"}
+        renderer = CertificateRenderer(event, layout, None, ctx)
+
+        drawn_objects = []
+        renderer._draw_textarea = MagicMock(side_effect=lambda c, op, order, o: drawn_objects.append(o))
+        renderer._draw_imagearea = MagicMock()
+        renderer._draw_poweredby = MagicMock()
+
+        canvas = MagicMock()
+        renderer.draw_page(canvas, show_page=False)
+
+        # All text objects should still be drawn regardless of pinned state
+        assert len(drawn_objects) > 0
+        # Pinned state should be present in the layout objects passed to draw functions
+        assert all(obj.get("pinned") is True for obj in drawn_objects)
+
+
+@pytest.mark.django_db
+def test_group_text_formatting_preserves_layout_structure():
+    """Test that group text formatting operations preserve layout structure"""
+    import json
+    from teamshifts.pdf import default_layout
+
+    layout = default_layout()
+    original_structure = [(obj.get("type"), obj.get("content")) for obj in layout]
+
+    # Simulate group formatting changes (color, font, etc.)
+    for obj in layout:
+        if obj.get("type") == "textarea":
+            obj["color"] = [255, 0, 0, 1]  # Change color
+            obj["fontFamily"] = "Arial"  # Change font
+            obj["fontSize"] = "15.0"  # Change size
+
+    modified_structure = [(obj.get("type"), obj.get("content")) for obj in layout]
+
+    # Structure should remain unchanged
+    assert original_structure == modified_structure
+    # Only properties should change
+    title_obj = next(o for o in layout if o.get("content") == "certificate_title")
+    assert title_obj["color"] == [255, 0, 0, 1]
+    assert title_obj["fontFamily"] == "Arial"
+    assert title_obj["fontSize"] == "15.0"
+
+
+@pytest.mark.django_db
+def test_certificate_renderer_get_ev_returns_event():
+    """Test that CertificateRenderer._get_ev returns the event directly"""
+    from teamshifts.pdf import CertificateRenderer, default_layout
+
+    layout = default_layout()
+    ctx = {"_event_color": "#c0392b"}
+    renderer = CertificateRenderer(event, layout, None, ctx)
+
+    # _get_ev should return self.event, not dereference order
+    result = renderer._get_ev(None, None)
+    assert result == event

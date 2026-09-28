@@ -378,6 +378,7 @@ def test_certificate_editor_view_get_current_layout(event, rf):
 def test_pinned_state_serialization_in_layout():
     """Test that pinned state is properly serialized in layout JSON"""
     import json
+
     from teamshifts.pdf import default_layout
 
     layout = default_layout()
@@ -402,6 +403,7 @@ def test_pinned_state_serialization_in_layout():
 def test_pinned_state_does_not_affect_pdf_rendering(event):
     """Test that pinned state in layout does not affect PDF rendering"""
     from unittest.mock import MagicMock
+
     from teamshifts.pdf import CertificateRenderer, default_layout
 
     with scope(event=event, organizer=event.organizer):
@@ -432,6 +434,7 @@ def test_pinned_state_does_not_affect_pdf_rendering(event):
 def test_group_text_formatting_preserves_layout_structure():
     """Test that group text formatting operations preserve layout structure"""
     import json
+
     from teamshifts.pdf import default_layout
 
     layout = default_layout()

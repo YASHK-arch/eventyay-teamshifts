@@ -29,10 +29,23 @@
 
         var tsOriginalUpdateValuesFromToolbox = editor._update_values_from_toolbox;
         editor._update_values_from_toolbox = function (event) {
+            var target = event && event.target;
+            var isTypographyControl = target && (
+                target.id === "toolbox-col" ||
+                target.id === "toolbox-fontsize" ||
+                target.id === "toolbox-fontfamily" ||
+                (
+                    typeof target.closest === "function" &&
+                    target.closest(
+                        "#toolbox button[data-action=bold], " +
+                        "#toolbox button[data-action=italic], " +
+                        "#toolbox-align button[data-action]"
+                    )
+                )
+            );
+
             if (
-                event &&
-                event.target &&
-                event.target.id === "toolbox-col" &&
+                isTypographyControl &&
                 editor.fabric &&
                 editor._all_selected_are_text(editor.fabric.getActiveObjects())
             ) {

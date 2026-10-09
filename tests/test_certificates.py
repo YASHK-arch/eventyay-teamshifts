@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from io import BytesIO
 
@@ -420,7 +421,10 @@ def test_render_certificate_pdf_renders_pinned_and_group_formatted_text(event, s
             continue
         # Mirrors CertificateRenderer._get_text_content: "other" uses the object's own text.
         rendered = obj.get("text") or "" if obj.get("content") == "other" else context[obj["content"]]
-        assert rendered.split()[0] in text
+        # Collapse whitespace in both values to handle line wrapping
+        normalized_rendered = re.sub(r"\s+", " ", rendered).strip()
+        normalized_text = re.sub(r"\s+", " ", text).strip()
+        assert normalized_rendered in normalized_text
 
     # Rendering must not mutate the caller's layout.
     assert all(obj.get("pinned") is True for obj in layout if obj.get("type") == "textarea")

@@ -267,11 +267,46 @@
         editor._init_fabric = function () {
             tsOriginalInitFabricForPin.apply(this, arguments);
             tsBindPinnedSelection();
+            tsBindKeyboardMovement();
         };
 
         if (editor.fabric) {
             tsBindPinnedSelection();
+            tsBindKeyboardMovement();
         }
+
+        // Bind keyboard movement to prevent arrow key movement for pinned objects
+        var tsBindKeyboardMovement = function () {
+            if (!editor.fabric || editor._ts_keyboard_bound) {
+                return;
+            }
+
+            editor._ts_keyboard_bound = true;
+
+            $(document).on("keydown.ts_keyboard", function (e) {
+                // Only intercept arrow keys
+                if (e.keyCode < 37 || e.keyCode > 40) {
+                    return;
+                }
+
+                // Check if fabric has active objects
+                var objects = editor.fabric.getActiveObjects();
+                if (!objects || objects.length === 0) {
+                    return;
+                }
+
+                // Check if any selected object is pinned
+                var hasPinned = objects.some(function (obj) {
+                    return obj.pinned === true;
+                });
+
+                // Prevent arrow key movement if any pinned object is selected
+                if (hasPinned) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            });
+        };
 
         // Apply group formatting to all selected text objects
         var tsApplyGroupFormatting = function () {

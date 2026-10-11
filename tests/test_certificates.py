@@ -380,23 +380,17 @@ def test_certificate_editor_view_get_current_layout(event, rf):
 
 @pytest.mark.django_db
 def test_certificate_renderer_get_ev_returns_event(event):
-    """_get_ev must return the event directly, because certificates have no order position."""
     with scope(event=event, organizer=event.organizer):
         renderer = CertificateRenderer(event, default_layout(), None, {"_event_color": "#c0392b"})
 
-        # The base implementation dereferences ``op.subevent or order.event``; draw_page()
-        # passes None for both, so the override has to short-circuit to the event.
         assert renderer._get_ev(None, None) == event
 
 
 @pytest.mark.django_db
 def test_render_certificate_pdf_renders_pinned_and_group_formatted_text(event, settings_obj):
-    """Pinned/group-formatted text objects must still reach the rendered PDF."""
     with scope(event=event, organizer=event.organizer):
         context = preview_context(event)
         layout = default_layout()
-        # The editor writes "pinned" plus the group-formatted properties onto every
-        # selected text object; the renderer has to tolerate and render them.
         for obj in layout:
             if obj.get("type") == "textarea":
                 obj["pinned"] = True
@@ -412,20 +406,15 @@ def test_render_certificate_pdf_renders_pinned_and_group_formatted_text(event, s
     assert len(reader.pages) == 1
 
     text = reader.pages[0].extract_text()
-    # Pinning only locks the object in the editor; the text itself must be unchanged.
     assert "Jane Member" in text
     assert "Certificate of Appreciation" in text
-    # Every text object in the layout was rendered, including the pinned ones.
     for obj in layout:
         if obj.get("type") != "textarea":
             continue
-        # Mirrors CertificateRenderer._get_text_content: "other" uses the object's own text.
         rendered = obj.get("text") or "" if obj.get("content") == "other" else context[obj["content"]]
-        # Collapse whitespace in both values to handle line wrapping
         normalized_rendered = re.sub(r"\s+", " ", rendered).strip()
         normalized_text = re.sub(r"\s+", " ", text).strip()
         assert normalized_rendered in normalized_text
 
-    # Rendering must not mutate the caller's layout.
     assert all(obj.get("pinned") is True for obj in layout if obj.get("type") == "textarea")
     assert all(obj.get("color") == [255, 0, 0, 1] for obj in layout if obj.get("type") == "textarea")

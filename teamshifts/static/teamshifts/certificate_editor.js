@@ -1,18 +1,7 @@
-/**
- * Certificate Editor Extensions
- * 
- * This script extends the pretixcontrol/js/ui/editor.js global editor object
- * with teamshifts-specific certificate functionality:
- * - Group text formatting for multiple selected text objects
- * - Pin/unpin controls for text objects
- * - Pin state persistence
- */
-
 (function() {
     "use strict";
 
     if (typeof editor !== "undefined") {
-        // Add method to check if all selected objects are text
         editor._all_selected_are_text = function (objects) {
             return !!objects &&
                 objects.length > 1 &&
@@ -55,7 +44,6 @@
             return tsOriginalUpdateValuesFromToolbox.apply(this, arguments);
         };
 
-        // Apply group text toolbox UI
         var tsApplyTextGroupToolbox = function () {
             if (!editor.fabric) {
                 return;
@@ -107,7 +95,6 @@
                 .toggleClass("active", first.textAlign === "right");
         };
 
-        // Update pin button visibility and state
         var tsUpdatePinButton = function () {
             var $pin = $("#toolbox-pin");
 
@@ -141,7 +128,6 @@
                 .toggleClass("btn-default", !pinned);
         };
 
-        // Bind fabric event handlers
         var tsBindFabricHandlers = function () {
             if (!editor.fabric || editor._ts_handlers_bound) {
                 return;
@@ -184,7 +170,6 @@
             tsUpdatePinButton();
         };
 
-        // Override fabric initialization to bind handlers
         var tsOriginalInitFabric = editor._init_fabric;
         editor._init_fabric = function () {
             tsOriginalInitFabric.apply(this, arguments);
@@ -195,7 +180,6 @@
             tsBindFabricHandlers();
         }
 
-        // Pin button click handler
         $("#toolbox-pin").on("click.ts_pin", function (event) {
             event.preventDefault();
             event.stopPropagation();
@@ -239,7 +223,6 @@
             editor._create_savepoint();
         });
 
-        // Bind pinned selection exclusion
         var tsBindPinnedSelection = function () {
             if (!editor.fabric || editor._ts_pin_selection_bound) {
                 return;
@@ -275,7 +258,6 @@
             });
         };
 
-        // Override fabric initialization again for pin selection
         var tsOriginalInitFabricForPin = editor._init_fabric;
         editor._init_fabric = function () {
             tsOriginalInitFabricForPin.apply(this, arguments);
@@ -288,7 +270,6 @@
             tsBindKeyboardMovement();
         }
 
-        // Bind keyboard movement to prevent arrow key movement for pinned objects
         var tsBindKeyboardMovement = function () {
             if (!editor.fabric || editor._ts_keyboard_bound) {
                 return;
@@ -297,23 +278,19 @@
             editor._ts_keyboard_bound = true;
 
             $(document).on("keydown.ts_keyboard", function (e) {
-                // Only intercept arrow keys
                 if (e.keyCode < 37 || e.keyCode > 40) {
                     return;
                 }
 
-                // Check if fabric has active objects
                 var objects = editor.fabric.getActiveObjects();
                 if (!objects || objects.length === 0) {
                     return;
                 }
 
-                // Check if any selected object is pinned
                 var hasPinned = objects.some(function (obj) {
                     return obj.pinned === true;
                 });
 
-                // Prevent arrow key movement if any pinned object is selected
                 if (hasPinned) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -321,7 +298,6 @@
             });
         };
 
-        // Apply group formatting to all selected text objects
         var tsApplyGroupFormatting = function () {
             if (!editor.fabric) {
                 return;
@@ -398,7 +374,6 @@
             editor.fabric.renderAll();
         };
 
-        // Bind group formatting events
         $("#toolbox")
             .on(
                 "change.ts_group_format input.ts_group_format keyup.ts_group_format",
@@ -416,7 +391,6 @@
                 tsApplyGroupFormatting
             );
 
-        // Override dump method to include pinned state
         var tsOriginalDump = editor.dump;
         editor.dump = function (objects) {
             var result = tsOriginalDump.apply(this, arguments);
@@ -434,7 +408,6 @@
             return result;
         };
 
-        // Override _add_from_data method to restore pinned state
         var tsOriginalAddFromData = editor._add_from_data;
         editor._add_from_data = function (data) {
             var object = tsOriginalAddFromData.apply(this, arguments);

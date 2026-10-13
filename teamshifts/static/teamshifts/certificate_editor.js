@@ -2,9 +2,120 @@
     "use strict";
 
     if (typeof editor !== "undefined") {
-        editor._all_selected_are_text = function (objects) {
+        var tsUpdateUndoRedoButtons = function () {
+            var history = editor.history || [];
+            var historyFloor = typeof editor._ts_history_floor === "number"
+                ? editor._ts_history_floor
+                : 0;
+            var currentHistoryIndex = history.length - 1 - editor._history_pos;
+            var canUndo = currentHistoryIndex > historyFloor;
+            var canRedo = editor._history_pos > 0;
+
+            $("#toolbox-undo")
+                .prop("disabled", !canUndo)
+                .toggleClass("disabled", !canUndo)
+                .attr("aria-disabled", String(!canUndo));
+            $("#toolbox-redo")
+                .prop("disabled", !canRedo)
+                .toggleClass("disabled", !canRedo)
+                .attr("aria-disabled", String(!canRedo));
+        };
+
+        var tsOriginalCreateSavepoint = editor._create_savepoint;
+        editor._create_savepoint = function () {
+            try {
+                if (editor._ts_editor_loading) {
+                    return;
+                }
+
+                var event = arguments[0];
+                var isTextColorControlEvent = event &&
+                    event.target &&
+                    event.target.id === "toolbox-col" &&
+                    editor.fabric &&
+                    editor._ts_are_text_objects &&
+                    editor._ts_are_text_objects(editor.fabric.getActiveObjects());
+
+                if (isTextColorControlEvent && !editor._ts_saving_group_color) {
+                    return;
+                }
+
+                if (editor._ts_color_picker_active && !editor._ts_saving_group_color) {
+                    return;
+                }
+
+                if (
+                    !editor._history_modification_in_progress &&
+                    editor.fabric &&
+                    editor.history &&
+                    editor.history.length
+                ) {
+                    var historyIndex = editor.history.length - 1 - editor._history_pos;
+
+                    if (
+                        historyIndex >= 0 &&
+                        JSON.stringify(editor.dump()) ===
+                            JSON.stringify(editor.history[historyIndex])
+                    ) {
+                        return;
+                    }
+                }
+
+                return tsOriginalCreateSavepoint.apply(this, arguments);
+            } finally {
+                tsUpdateUndoRedoButtons();
+            }
+        };
+
+        var tsOriginalLoadForHistory = editor.load;
+        editor.load = function () {
+            var historyModificationInProgress =
+                editor._history_modification_in_progress;
+            var editorLoading = editor._ts_editor_loading;
+            editor._history_modification_in_progress = true;
+            editor._ts_editor_loading = true;
+
+            try {
+                return tsOriginalLoadForHistory.apply(this, arguments);
+            } finally {
+                editor._history_modification_in_progress =
+                    historyModificationInProgress;
+                editor._ts_editor_loading = editorLoading;
+            }
+        };
+
+        var tsOriginalUndo = editor._undo;
+        editor._undo = function () {
+            var historyFloor = typeof editor._ts_history_floor === "number"
+                ? editor._ts_history_floor
+                : 0;
+            var currentHistoryIndex = editor.history.length - 1 - editor._history_pos;
+
+            if (currentHistoryIndex <= historyFloor) {
+                tsUpdateUndoRedoButtons();
+                return;
+            }
+
+            var result = tsOriginalUndo.apply(this, arguments);
+            tsUpdateUndoRedoButtons();
+            return result;
+        };
+
+        var tsOriginalRedo = editor._redo;
+        editor._redo = function () {
+            if (editor._history_pos <= 0) {
+                tsUpdateUndoRedoButtons();
+                return;
+            }
+
+            var result = tsOriginalRedo.apply(this, arguments);
+            tsUpdateUndoRedoButtons();
+            return result;
+        };
+
+        editor._ts_are_text_objects = function (objects) {
             return !!objects &&
-                objects.length > 1 &&
+                objects.length > 0 &&
                 objects.every(function (obj) {
                     return (
                         obj.type === "textarea" ||
@@ -16,11 +127,30 @@
                 });
         };
 
+        editor._all_selected_are_text = function (objects) {
+            return !!objects &&
+                objects.length > 1 &&
+                editor._ts_are_text_objects(objects);
+        };
+
         var tsOriginalUpdateValuesFromToolbox = editor._update_values_from_toolbox;
         editor._update_values_from_toolbox = function (event) {
+            if (editor._ts_editor_loading) {
+                return;
+            }
+
             var target = event && event.target;
+            if (
+                target &&
+                target.id === "toolbox-col" &&
+                editor.fabric &&
+                editor._ts_are_text_objects(editor.fabric.getActiveObjects())
+            ) {
+                tsApplyGroupColor();
+                return;
+            }
+
             var isTypographyControl = target && (
-                target.id === "toolbox-col" ||
                 target.id === "toolbox-fontsize" ||
                 target.id === "toolbox-fontfamily" ||
                 (
@@ -75,7 +205,12 @@
 
                 var $color = $("#toolbox-col");
                 if ($color.data("colorpicker")) {
-                    $color.colorpicker("setValue", hex);
+                    editor._ts_updating_group_toolbox = true;
+                    try {
+                        $color.colorpicker("setValue", hex);
+                    } finally {
+                        editor._ts_updating_group_toolbox = false;
+                    }
                 }
             }
 
@@ -205,6 +340,7 @@
             var object = objects[0];
             var pinned = object.pinned !== true;
 
+            editor._history_modification_in_progress = true;
             object.set({
                 pinned: pinned,
                 editable: !pinned,
@@ -215,6 +351,7 @@
                 lockScalingY: pinned,
                 hasControls: !pinned
             });
+            editor._history_modification_in_progress = false;
 
             object.dirty = true;
 
@@ -299,7 +436,7 @@
         };
 
         var tsApplyGroupFormatting = function () {
-            if (!editor.fabric) {
+            if (!editor.fabric || editor._ts_updating_group_toolbox) {
                 return;
             }
 
@@ -316,44 +453,56 @@
             var italic = $("#toolbox").find("button[data-action=italic]").is(".active");
             var align = $("#toolbox-align").find(".active").attr("data-action");
 
-            objects.forEach(function (object) {
-                if (object.pinned) {
-                    return;
-                }
+            var historyModificationInProgress =
+                editor._history_modification_in_progress;
+            editor._history_modification_in_progress = true;
+            try {
+                objects.forEach(function (object) {
+                    if (object.pinned) {
+                        return;
+                    }
 
-                if (color) {
-                    object.set("fill", color);
-                }
+                    if (color) {
+                        object.set("fill", color);
+                    }
 
-                if (fontFamily) {
-                    object.set("fontFamily", fontFamily);
-                }
+                    if (fontFamily) {
+                        object.set("fontFamily", fontFamily);
+                    }
 
-                if (!isNaN(fontSize)) {
-                    object.set("fontSize", editor._pt2px(fontSize));
-                }
+                    if (!isNaN(fontSize)) {
+                        object.set("fontSize", editor._pt2px(fontSize));
+                    }
 
-                object.set("fontWeight", bold ? "bold" : "normal");
-                object.set("fontStyle", italic ? "italic" : "normal");
+                    object.set("fontWeight", bold ? "bold" : "normal");
+                    object.set("fontStyle", italic ? "italic" : "normal");
 
-                if (align) {
-                    object.set("textAlign", align);
-                }
+                    if (align) {
+                        object.set("textAlign", align);
+                    }
 
-                object.setCoords();
-            });
+                    object.setCoords();
+                });
+            } finally {
+                editor._history_modification_in_progress =
+                    historyModificationInProgress;
+            }
 
             editor.fabric.renderAll();
+            editor._create_savepoint();
         };
 
         var tsApplyGroupColor = function () {
-            if (!editor.fabric) {
+            if (
+                !editor.fabric ||
+                editor._ts_updating_group_toolbox
+            ) {
                 return;
             }
 
             var objects = editor.fabric.getActiveObjects();
 
-            if (!editor._all_selected_are_text(objects)) {
+            if (!editor._ts_are_text_objects(objects)) {
                 return;
             }
 
@@ -362,16 +511,35 @@
                 return;
             }
 
-            objects.forEach(function (object) {
-                if (object.pinned) {
-                    return;
-                }
+            var historyModificationInProgress =
+                editor._history_modification_in_progress;
+            editor._history_modification_in_progress = true;
+            try {
+                objects.forEach(function (object) {
+                    if (object.pinned) {
+                        return;
+                    }
 
-                object.set("fill", color);
-                object.setCoords();
-            });
+                    object.set("fill", color);
+                    object.setCoords();
+                });
+            } finally {
+                editor._history_modification_in_progress =
+                    historyModificationInProgress;
+            }
 
             editor.fabric.renderAll();
+            if (editor._ts_color_picker_active) {
+                editor._ts_color_picker_pending = true;
+                return;
+            }
+
+            editor._ts_saving_group_color = true;
+            try {
+                editor._create_savepoint();
+            } finally {
+                editor._ts_saving_group_color = false;
+            }
         };
 
         $("#toolbox")
@@ -381,14 +549,28 @@
                 tsApplyGroupFormatting
             )
             .on(
-                "change.ts_group_format input.ts_group_format keyup.ts_group_format changeColor.ts_group_format",
-                "#toolbox-col",
-                tsApplyGroupColor
-            )
-            .on(
                 "click.ts_group_format",
                 "button.toggling",
                 tsApplyGroupFormatting
+            )
+            .on(
+                "showPicker.ts_group_format",
+                "#toolbox-col",
+                function () {
+                    editor._ts_color_picker_active = true;
+                    editor._ts_color_picker_pending = false;
+                }
+            )
+            .on(
+                "hidePicker.ts_group_format",
+                "#toolbox-col",
+                function () {
+                    editor._ts_color_picker_active = false;
+                    if (editor._ts_color_picker_pending) {
+                        editor._ts_color_picker_pending = false;
+                        tsApplyGroupColor();
+                    }
+                }
             );
 
         var tsOriginalDump = editor.dump;
@@ -431,5 +613,15 @@
 
             return object;
         };
+
+        var tsOriginalInitFabricForHistory = editor._init_fabric;
+        editor._init_fabric = function () {
+            var result = tsOriginalInitFabricForHistory.apply(this, arguments);
+            editor._ts_history_floor = 0;
+            tsUpdateUndoRedoButtons();
+            return result;
+        };
+
+        tsUpdateUndoRedoButtons();
     }
 })();

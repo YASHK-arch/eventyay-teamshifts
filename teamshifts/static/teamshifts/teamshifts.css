@@ -98,7 +98,11 @@ label .optional {
 
 .teamshifts-filter-bar {
     margin-bottom: 1em;
-    overflow: hidden;
+}
+
+.teamshifts-download-dropdown {
+    display: inline-block;
+    vertical-align: top;
 }
 
 .teamshifts-select-all-col {
@@ -389,7 +393,6 @@ label .optional {
 .ts-send-vouchers-hint[hidden] {
   display: none;
 }
-
 #toolbox-pin {
   display: none;
 }
@@ -418,4 +421,8 @@ label .optional {
   background-color: #337ab7;
   border-color: #2e6da4;
   color: #fff;
+}
+
+.ts-voucher-sent-date {
+  display: block;
 }
